@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+data/*.log
+data/**/*.log
+
+# Runtime / temporary files
+*.lock
+*.tmp
+*.temp
+
+# Databases / runtime memory
+*.db
+*.sqlite
+*.sqlite3
+
+# Chroma / vector database
+data/chroma_db/
+
+# Runtime conversation/session data
+data/sessions/
+data/conversations.json
+data/companion_pos.json
+conversation_log.json
+
+# Ultron runtime data
+data/ultron_memory.db
+data/ultron_service.log
+data/ultron.lock
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# --- added for GitHub push ---
+# Secrets: copy config.example.py to config.py and fill in your key
+config.py
+# Personal / runtime data
+data/
+# Accidental nested git repo
+/ultron/
+# Compiled python
+*.pyc

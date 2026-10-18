@@ -1,0 +1,1168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ULTRON EARTH MODE</title>
+
+<!-- CesiumJS — real satellite imagery, terrain, 3D buildings, streets -->
+<script src="https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/Cesium.js"></script>
+<link href="https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+
+<!-- Three.js for solar system background -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<style>
+*, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+:root {
+  --c:   #00c8ff;
+  --cdim: rgba(0,200,255,0.18);
+  --bg:  rgba(0,6,18,0.82);
+  --font: "Courier New", monospace;
+}
+
+body { background:#000308; overflow:hidden; font-family:var(--font); color:var(--c); }
+
+/* ── SOLAR SYSTEM BACKGROUND ── */
+#solar-bg {
+  position:fixed; inset:0; z-index:0;
+  opacity:1; transition:opacity 2s ease;
+}
+#solar-bg.hidden { opacity:0; pointer-events:none; }
+
+/* ── CESIUM VIEWER ── */
+#cesiumContainer {
+  position:fixed; inset:0; z-index:1;
+  opacity:0; transition:opacity 2.5s ease;
+}
+#cesiumContainer.visible { opacity:1; }
+
+/* Hide Cesium branding cleanly */
+.cesium-widget-credits { display:none !important; }
+.cesium-credit-logoContainer { display:none !important; }
+
+/* ── BOOT ── */
+#boot {
+  position:fixed; inset:0; z-index:200;
+  background:#000308;
+  display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  transition:opacity 1.8s ease;
+}
+#boot.out { opacity:0; pointer-events:none; }
+.boot-word {
+  font-size:56px; font-weight:700; letter-spacing:16px;
+  color:var(--c); text-shadow:0 0 40px var(--c);
+  margin-bottom:10px;
+}
+.boot-mode {
+  font-size:11px; letter-spacing:8px; color:#006688;
+  margin-bottom:56px;
+}
+.bar-track {
+  width:380px; height:1.5px;
+  background:rgba(0,200,255,0.12);
+  position:relative; overflow:hidden;
+}
+.bar-fill {
+  height:100%; background:var(--c);
+  box-shadow:0 0 14px var(--c);
+  width:0%; transition:width 0.15s linear;
+}
+.boot-msg {
+  margin-top:18px; font-size:10px;
+  letter-spacing:3px; color:#004455;
+  min-height:14px;
+}
+
+/* ── HUD SHELL ── */
+#hud {
+  position:fixed; inset:0; z-index:50;
+  pointer-events:none;
+  opacity:0; transition:opacity 1s ease;
+}
+#hud.on { opacity:1; }
+
+/* scanlines */
+#hud::before {
+  content:"";
+  position:absolute; inset:0;
+  background:repeating-linear-gradient(
+    0deg, transparent, transparent 3px,
+    rgba(0,200,255,0.012) 3px, rgba(0,200,255,0.012) 4px
+  );
+  pointer-events:none;
+}
+
+/* corner brackets */
+.cx {
+  position:absolute; width:22px; height:22px;
+}
+.cx::before,.cx::after {
+  content:""; position:absolute; background:rgba(0,200,255,0.5);
+}
+.cx::before { width:100%; height:1.5px; top:0; left:0; }
+.cx::after  { width:1.5px; height:100%; top:0; left:0; }
+.cx.tl { top:14px; left:14px; }
+.cx.tr { top:14px; right:14px; transform:scaleX(-1); }
+.cx.bl { bottom:14px; left:14px; transform:scaleY(-1); }
+.cx.br { bottom:14px; right:14px; transform:scale(-1,-1); }
+
+/* panels */
+.panel {
+  position:absolute;
+  background:var(--bg);
+  border:1px solid rgba(0,200,255,0.14);
+  backdrop-filter:blur(6px);
+  padding:13px 16px;
+}
+.panel-lbl {
+  font-size:8px; letter-spacing:4px;
+  color:#005566; text-transform:uppercase;
+  margin-bottom:5px;
+}
+.panel-val {
+  font-size:12px; color:var(--c);
+  font-weight:700; letter-spacing:1px;
+  line-height:1.6;
+  text-shadow:0 0 8px rgba(0,200,255,0.5);
+}
+.panel-dim {
+  font-size:10px; color:#004455;
+  letter-spacing:1px; line-height:1.7;
+}
+
+#p-loc  { top:20px; left:20px; width:250px; border-left:2px solid var(--c); }
+#p-coord{ top:20px; right:20px; width:210px; border-right:2px solid var(--c); text-align:right; }
+#p-sys  { bottom:20px; left:20px; width:290px; border-left:2px solid var(--c); }
+#p-mode { bottom:20px; right:20px; width:210px; border-right:2px solid var(--c); text-align:right; }
+
+/* top center title */
+#p-title {
+  position:absolute; top:20px; left:50%;
+  transform:translateX(-50%);
+  background:var(--bg);
+  border:1px solid rgba(0,200,255,0.14);
+  border-bottom:2px solid var(--c);
+  padding:8px 24px;
+  font-size:10px; letter-spacing:6px; color:var(--c);
+  white-space:nowrap;
+}
+
+/* ── VOICE TOAST ── */
+#toast {
+  position:fixed; bottom:72px; left:50%;
+  transform:translateX(-50%);
+  background:var(--bg);
+  border:1px solid rgba(0,200,255,0.2);
+  border-top:2px solid var(--c);
+  padding:9px 28px;
+  font-size:11px; letter-spacing:4px; color:var(--c);
+  z-index:60; white-space:nowrap;
+  opacity:0; transition:opacity 0.35s;
+  pointer-events:none;
+}
+#toast.show { opacity:1; }
+
+/* ── GESTURE CAM ── */
+#cam-wrap {
+  position:fixed; bottom:72px; right:20px;
+  width:156px; height:116px;
+  border:1px solid rgba(0,200,255,0.2);
+  background:#000; z-index:60;
+  display:none;
+}
+#cam-wrap video {
+  width:100%; height:100%;
+  object-fit:cover; opacity:0.55;
+  transform:scaleX(-1);
+}
+.cam-tag {
+  position:absolute; top:4px; left:6px;
+  font-size:8px; letter-spacing:2px;
+  color:rgba(0,200,255,0.6);
+}
+
+/* ── GESTURE HAND DOTS ── */
+#hand-canvas {
+  position:fixed; inset:0; z-index:55;
+  pointer-events:none;
+}
+
+/* ── RETICLE ── */
+#ret {
+  position:fixed; z-index:58;
+  pointer-events:none; display:none;
+  width:64px; height:64px;
+  margin:-32px 0 0 -32px;
+}
+.ret-ring {
+  position:absolute; inset:0;
+  border:1.5px solid var(--c);
+  border-radius:50%;
+  animation:spin 3s linear infinite;
+  box-shadow:0 0 12px rgba(0,200,255,0.3);
+}
+.ret-ring:nth-child(2) {
+  inset:10px; border-color:rgba(0,200,255,0.5);
+  animation-direction:reverse; animation-duration:2s;
+}
+.ret-cross::before,.ret-cross::after {
+  content:""; position:absolute; background:var(--c);
+}
+.ret-cross::before { width:1px;height:20px;left:50%;top:50%;transform:translate(-50%,-50%); }
+.ret-cross::after  { width:20px;height:1px;left:50%;top:50%;transform:translate(-50%,-50%); }
+@keyframes spin { to { transform:rotate(360deg); } }
+
+/* ── EXIT BTN ── */
+#exit-btn {
+  position:fixed; top:20px; left:50%;
+  transform:translateX(-50%);
+  background:var(--bg);
+  border:1px solid rgba(0,200,255,0.2);
+  color:var(--c); font-family:var(--font);
+  font-size:9px; letter-spacing:5px;
+  padding:8px 22px; cursor:pointer;
+  pointer-events:all; z-index:61;
+  transition:border-color 0.2s;
+  display:none;
+}
+#exit-btn:hover { border-color:var(--c); color:#fff; }
+
+/* ── LAYER SELECTOR ── */
+#layers {
+  position:fixed; left:20px; top:50%;
+  transform:translateY(-50%);
+  z-index:60; pointer-events:all;
+  display:flex; flex-direction:column; gap:8px;
+  display:none;
+}
+.layer-btn {
+  background:var(--bg);
+  border:1px solid rgba(0,200,255,0.16);
+  color:#004455; font-family:var(--font);
+  font-size:8px; letter-spacing:2px;
+  padding:8px 10px; cursor:pointer;
+  writing-mode:vertical-rl;
+  border-left:2px solid transparent;
+  transition:all 0.2s;
+  white-space:nowrap;
+}
+.layer-btn:hover,.layer-btn.active {
+  color:var(--c); border-left-color:var(--c);
+}
+
+/* ── SOLAR SYSTEM LABEL ── */
+#solar-label {
+  position:fixed; bottom:30px; left:50%;
+  transform:translateX(-50%);
+  font-size:9px; letter-spacing:5px; color:#003344;
+  z-index:60; pointer-events:none;
+  transition:opacity 1s;
+}
+</style>
+</head>
+<body>
+
+<!-- SOLAR SYSTEM BG -->
+<canvas id="solar-bg"></canvas>
+
+<!-- CESIUM GLOBE -->
+<div id="cesiumContainer"></div>
+
+<!-- HUD -->
+<div id="hud">
+  <div class="cx tl"></div><div class="cx tr"></div>
+  <div class="cx bl"></div><div class="cx br"></div>
+  <div id="p-title">ULTRON — EARTH OBSERVATION MODE</div>
+  <div class="panel" id="p-loc">
+    <div class="panel-lbl">Location</div>
+    <div class="panel-val" id="h-loc">ORBITAL VIEW</div>
+    <div class="panel-dim" id="h-loc2">Earth · Milky Way Galaxy</div>
+  </div>
+  <div class="panel" id="p-coord">
+    <div class="panel-lbl">Coordinates</div>
+    <div class="panel-val" id="h-lat">LAT  —</div>
+    <div class="panel-val" id="h-lon">LON  —</div>
+    <div class="panel-dim" id="h-alt">ALT  —</div>
+  </div>
+  <div class="panel" id="p-sys">
+    <div class="panel-lbl">Systems</div>
+    <div class="panel-dim" id="h-gest">● GESTURE   INITIALIZING</div>
+    <div class="panel-dim" id="h-voice">● VOICE     ACTIVE</div>
+    <div class="panel-dim" id="h-src">● IMAGERY   BING SATELLITE</div>
+    <div class="panel-dim" id="h-time">● DATA      REAL-TIME</div>
+  </div>
+  <div class="panel" id="p-mode">
+    <div class="panel-lbl">View Mode</div>
+    <div class="panel-val" id="h-mode">SATELLITE</div>
+    <div class="panel-dim" id="h-zoom">ALT  —</div>
+    <div class="panel-dim" id="h-fps">60 FPS</div>
+  </div>
+</div>
+
+<!-- LAYER BUTTONS -->
+<div id="layers">
+  <button class="layer-btn active" onclick="setLayer('satellite')">SATELLITE</button>
+  <button class="layer-btn" onclick="setLayer('terrain')">TERRAIN 3D</button>
+  <button class="layer-btn" onclick="setLayer('streets')">STREETS</button>
+  <button class="layer-btn" onclick="setLayer('night')">NIGHT LIGHTS</button>
+  <button class="layer-btn" onclick="setLayer('weather')">WEATHER</button>
+</div>
+
+<!-- GESTURE HAND OVERLAY -->
+<canvas id="hand-canvas"></canvas>
+
+<!-- RETICLE -->
+<div id="ret">
+  <div class="ret-ring"></div>
+  <div class="ret-ring"></div>
+  <div class="ret-cross"></div>
+</div>
+
+<!-- VOICE TOAST -->
+<div id="toast"></div>
+
+<!-- GESTURE CAM -->
+<div id="cam-wrap">
+  <video id="cam-vid" autoplay muted playsinline></video>
+  <div class="cam-tag">GESTURE CAM</div>
+</div>
+
+<!-- EXIT -->
+<button id="exit-btn" onclick="exitMode()">✕  EXIT EARTH MODE</button>
+
+<!-- SOLAR SYSTEM LABEL -->
+<div id="solar-label">SCROLL OR PINCH TO ENTER EARTH ORBIT</div>
+
+<script>
+// ═══════════════════════════════════════════════════
+// ULTRON EARTH MODE — Full Real Satellite Implementation
+// ═══════════════════════════════════════════════════
+
+// ── SOLAR SYSTEM (Three.js background) ─────────────
+let solarScene, solarCam, solarRenderer, solarClock;
+let sun, planets = [], solarStars;
+let solarActive = true;
+let zoomingToEarth = false;
+
+function initSolar() {
+  const canvas = document.getElementById("solar-bg");
+  solarScene    = new THREE.Scene();
+  solarClock    = new THREE.Clock();
+  solarCam      = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.01, 5000);
+  solarCam.position.set(0, 60, 180);
+  solarCam.lookAt(0, 0, 0);
+
+  solarRenderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
+  solarRenderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  solarRenderer.setSize(innerWidth, innerHeight);
+  solarRenderer.toneMapping = THREE.ACESFilmicToneMapping;
+  solarRenderer.toneMappingExposure = 1.1;
+
+  // Stars — 15k points with color variation
+  const sg  = new THREE.BufferGeometry();
+  const cnt = 15000;
+  const sp  = new Float32Array(cnt*3);
+  const sc  = new Float32Array(cnt*3);
+  for (let i=0;i<cnt;i++) {
+    const t = Math.random()*Math.PI*2, p = Math.acos(2*Math.random()-1);
+    const r = 1200 + Math.random()*300;
+    sp[i*3]  = r*Math.sin(p)*Math.cos(t);
+    sp[i*3+1]= r*Math.sin(p)*Math.sin(t);
+    sp[i*3+2]= r*Math.cos(p);
+    const h = Math.random();
+    sc[i*3]  = 0.75+h*0.25; sc[i*3+1]=0.8+h*0.15; sc[i*3+2]=0.85+h*0.15;
+  }
+  sg.setAttribute("position",new THREE.BufferAttribute(sp,3));
+  sg.setAttribute("color",   new THREE.BufferAttribute(sc,3));
+  solarStars = new THREE.Points(sg, new THREE.PointsMaterial({
+    size:0.8, vertexColors:true, sizeAttenuation:true,
+  }));
+  solarScene.add(solarStars);
+
+  // Sun
+  const sunGeo = new THREE.SphereGeometry(12, 64, 64);
+  const sunMat = new THREE.MeshBasicMaterial({ color:0xfffbe0 });
+  sun = new THREE.Mesh(sunGeo, sunMat);
+  solarScene.add(sun);
+
+  // Sun glow (additive sprite-like halo)
+  const glowGeo = new THREE.SphereGeometry(16, 32, 32);
+  const glowMat = new THREE.ShaderMaterial({
+    uniforms:{ c:{value:0.5}, p:{value:4.5} },
+    vertexShader:`
+      uniform float c,p;
+      varying float i;
+      void main(){
+        vec3 vn=normalize(normalMatrix*normal);
+        vec3 vv=normalize(normalMatrix*vec3(cameraPosition-position));
+        i=pow(c-dot(vn,vv),p);
+        gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1);
+      }`,
+    fragmentShader:`
+      varying float i;
+      void main(){ gl_FragColor=vec4(1.0,0.9,0.5,i*0.7); }`,
+    side:THREE.FrontSide,
+    blending:THREE.AdditiveBlending,
+    transparent:true, depthWrite:false,
+  });
+  solarScene.add(new THREE.Mesh(glowGeo, glowMat));
+
+  // Point light from sun
+  const sl = new THREE.PointLight(0xfffbe0, 3, 2000);
+  solarScene.add(sl);
+  solarScene.add(new THREE.AmbientLight(0x111133, 0.5));
+
+  // Planets data: [name, dist, radius, color, speedMult, tilt, rings]
+  const planetData = [
+    ["Mercury", 22,  1.0, 0x9a8c82, 4.7,  0,    false],
+    ["Venus",   34,  2.4, 0xe8cda0, 1.8,  3,    false],
+    ["Earth",   50,  2.6, 0x3a7bd5, 1.0,  23.5, false],
+    ["Mars",    68,  1.4, 0xc1440e, 0.53, 25,   false],
+    ["Jupiter", 110, 8.0, 0xc88b3a, 0.08, 3,    false],
+    ["Saturn",  150, 6.5, 0xd4a96a, 0.03, 27,   true ],
+    ["Uranus",  190, 4.5, 0x7de8e8, 0.01, 98,   true ],
+    ["Neptune", 230, 4.0, 0x3f54ba, 0.006,28,   false],
+  ];
+
+  planetData.forEach(([name, dist, r, col, spd, tilt, hasRings]) => {
+    // Orbit ring
+    const oc = new THREE.EllipseCurve(0,0,dist,dist,0,Math.PI*2,false,0);
+    const op  = new THREE.BufferGeometry().setFromPoints(oc.getPoints(128));
+    const oLine = new THREE.Line(op, new THREE.LineBasicMaterial({
+      color:0x223344, transparent:true, opacity:0.3,
+    }));
+    oLine.rotation.x = Math.PI/2;
+    solarScene.add(oLine);
+
+    // Planet sphere
+    const pg  = new THREE.SphereGeometry(r, 48, 48);
+    const pm  = new THREE.MeshPhongMaterial({ color:col, shininess:30 });
+
+    // Earth special texture
+    if (name === "Earth") {
+      const ec = buildEarthCanvas();
+      pm.map = new THREE.CanvasTexture(ec);
+      pm.color.set(0xffffff);
+    }
+    if (name === "Jupiter") addBands(pm, 0xc88b3a, 0xa06020, 8);
+    if (name === "Saturn")  addBands(pm, 0xd4a96a, 0xb08848, 6);
+
+    const pmesh = new THREE.Mesh(pg, pm);
+    pmesh.rotation.z = THREE.MathUtils.degToRad(tilt);
+
+    // Pivot for orbit
+    const pivot = new THREE.Object3D();
+    pivot.add(pmesh);
+    pmesh.position.x = dist;
+    pmesh.userData = { name, spd, dist, self:pmesh };
+
+    // Atmosphere for Earth & Venus
+    if (name==="Earth" || name==="Venus") {
+      const atmG = new THREE.SphereGeometry(r*1.04, 32, 32);
+      const atmM = new THREE.MeshPhongMaterial({
+        color: name==="Earth" ? 0x4488ff : 0xddaa66,
+        transparent:true, opacity:0.18, depthWrite:false,
+      });
+      const atm = new THREE.Mesh(atmG, atmM);
+      pmesh.add(atm);
+    }
+
+    // Saturn rings
+    if (hasRings) {
+      const ri = r*1.4, ro = r*2.6;
+      const rg = new THREE.RingGeometry(ri, ro, 64);
+      const rmat = new THREE.MeshBasicMaterial({
+        color: name==="Saturn" ? 0xc0a060 : 0x60a0c0,
+        side:THREE.DoubleSide, transparent:true, opacity:0.5,
+      });
+      const ring = new THREE.Mesh(rg, rmat);
+      ring.rotation.x = Math.PI/2;
+      pmesh.add(ring);
+    }
+
+    // Moon for Earth
+    if (name==="Earth") {
+      const mg = new THREE.SphereGeometry(0.7, 24, 24);
+      const mm = new THREE.MeshPhongMaterial({ color:0xaaaaaa });
+      const moon = new THREE.Mesh(mg, mm);
+      moon.userData.isMoon = true;
+      moon.userData.angle  = 0;
+      moon.userData.dist   = 5.5;
+      pmesh.add(moon);
+    }
+
+    pivot.userData = { name, spd, angle: Math.random()*Math.PI*2 };
+    solarScene.add(pivot);
+    planets.push(pivot);
+  });
+
+  // Asteroid belt (particle ring)
+  const aBelt = new THREE.BufferGeometry();
+  const aPos  = new Float32Array(3000*3);
+  for (let i=0;i<3000;i++) {
+    const a = Math.random()*Math.PI*2;
+    const r = 80 + Math.random()*22;
+    aPos[i*3]  = r*Math.cos(a);
+    aPos[i*3+1]= (Math.random()-0.5)*2;
+    aPos[i*3+2]= r*Math.sin(a);
+  }
+  aBelt.setAttribute("position",new THREE.BufferAttribute(aPos,3));
+  solarScene.add(new THREE.Points(aBelt, new THREE.PointsMaterial({
+    color:0x666655, size:0.3, sizeAttenuation:true,
+  })));
+
+  animateSolar();
+}
+
+function buildEarthCanvas() {
+  const c = document.createElement("canvas");
+  c.width=512; c.height=256;
+  const x = c.getContext("2d");
+  // Ocean
+  x.fillStyle="#1a5a9a"; x.fillRect(0,0,512,256);
+  // Land masses (simplified but recognizable shapes)
+  x.fillStyle="#3a8a3a";
+  // N America
+  x.beginPath(); x.ellipse(100,80,55,65,-.2,0,Math.PI*2); x.fill();
+  // S America
+  x.beginPath(); x.ellipse(130,168,32,55,.1,0,Math.PI*2); x.fill();
+  // Europe
+  x.beginPath(); x.ellipse(248,70,28,35,0,0,Math.PI*2); x.fill();
+  // Africa
+  x.fillStyle="#4a8a28";
+  x.beginPath(); x.ellipse(254,148,32,62,0,0,Math.PI*2); x.fill();
+  // Asia
+  x.fillStyle="#3a8040";
+  x.beginPath(); x.ellipse(360,80,95,70,-.1,0,Math.PI*2); x.fill();
+  // Australia
+  x.fillStyle="#7a8a28";
+  x.beginPath(); x.ellipse(412,175,32,28,.1,0,Math.PI*2); x.fill();
+  // Ice caps
+  x.fillStyle="#ddeeff";
+  x.fillRect(0,0,512,20); x.fillRect(0,236,512,20);
+  // Clouds
+  x.fillStyle="rgba(255,255,255,0.25)";
+  for (let i=0;i<80;i++) {
+    x.beginPath();
+    x.ellipse(Math.random()*512,Math.random()*256,Math.random()*30+8,Math.random()*12+4,Math.random()*Math.PI,0,Math.PI*2);
+    x.fill();
+  }
+  return c;
+}
+
+function addBands(mat, c1, c2, n) {
+  // Placeholder — in a real build would use canvas texture
+}
+
+let solarT = 0, solarFlyT = 0;
+let earthPivot = null, earthMesh = null;
+
+function animateSolar() {
+  requestAnimationFrame(animateSolar);
+  const dt = Math.min(solarClock.getDelta(), 0.05);
+  solarT += dt;
+  solarStars.rotation.y += 0.000015;
+
+  // Orbit planets
+  planets.forEach(pivot => {
+    pivot.userData.angle += pivot.userData.spd * 0.008 * dt;
+    pivot.rotation.y = pivot.userData.angle;
+    // Self rotation
+    if (pivot.children[0]) pivot.children[0].rotation.y += dt * 0.5;
+    // Moon orbit
+    const moon = pivot.children[0]?.getObjectByProperty("isMoon",true);
+    if (moon) {
+      moon.userData.angle += dt * 2.5;
+      moon.position.set(
+        Math.cos(moon.userData.angle)*moon.userData.dist, 0,
+        Math.sin(moon.userData.angle)*moon.userData.dist
+      );
+    }
+    // Cache Earth pivot/mesh
+    if (pivot.userData.name==="Earth") {
+      earthPivot = pivot;
+      earthMesh  = pivot.children[0];
+    }
+  });
+
+  // Cinematic fly-to-Earth zoom
+  if (zoomingToEarth && earthMesh) {
+    solarFlyT = Math.min(solarFlyT + dt * 0.4, 1);
+    const t  = easeInOut(solarFlyT);
+    const ep = new THREE.Vector3();
+    earthMesh.getWorldPosition(ep);
+    solarCam.position.lerpVectors(
+      new THREE.Vector3(0,60,180),
+      ep.clone().add(new THREE.Vector3(0,3,8)),
+      t
+    );
+    solarCam.lookAt(ep);
+    if (solarFlyT >= 1) {
+      zoomingToEarth = false;
+      transitionToCesium();
+    }
+  }
+  solarRenderer.render(solarScene, solarCam);
+}
+
+function easeInOut(t) { return t<0.5 ? 2*t*t : -1+(4-2*t)*t; }
+
+function transitionToCesium() {
+  document.getElementById("solar-bg").style.opacity = "0";
+  document.getElementById("cesiumContainer").classList.add("visible");
+  document.getElementById("solar-label").style.opacity = "0";
+  setTimeout(() => {
+    document.getElementById("solar-bg").classList.add("hidden");
+    solarActive = false;
+  }, 2500);
+}
+
+// ── CESIUM GLOBE ────────────────────────────────────
+let viewer, lastCamPos = null;
+let frameCount=0, fpsTimer=performance.now(), fps=60;
+
+async function initCesium() {
+  // Use free Cesium Ion token — works for satellite imagery
+  Cesium.Ion.defaultAccessToken = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJlYWE1OWUxNy1mMWZiLTQzYjYtYTQ0OS1kMWFjYmFkNjc4ZTciLCJpZCIxMjA3LCJpYXQiOjE1ODYwMjc3NzZ9.vgtMaj4KXqf4OOmHLrIHyBi6xiqEjmBqbB5zw16RkYE";
+
+  viewer = new Cesium.Viewer("cesiumContainer", {
+    // Real satellite imagery from Bing
+    imageryProvider: new Cesium.BingMapsImageryProvider({
+      url: "https://dev.virtualearth.net",
+      mapStyle: Cesium.BingMapsStyle.AERIAL,
+    }),
+    // Real 3D terrain from Cesium World Terrain
+    terrainProvider: await Cesium.CesiumTerrainProvider.fromIonAssetId(1),
+    // UI cleanup
+    animation:         false,
+    baseLayerPicker:   false,
+    fullscreenButton:  false,
+    geocoder:          false,
+    homeButton:        false,
+    infoBox:           false,
+    sceneModePicker:   false,
+    selectionIndicator:false,
+    timeline:          false,
+    navigationHelpButton: false,
+    creditContainer:   document.createElement("div"),
+  });
+
+  // 3D Buildings (OSM)
+  try {
+    const tileset = await Cesium.createOsmBuildings();
+    viewer.scene.primitives.add(tileset);
+  } catch(e) { console.log("3D buildings not available:", e); }
+
+  // Enable high quality rendering
+  viewer.scene.globe.enableLighting    = true;
+  viewer.scene.globe.dynamicAtmosphere = true;
+  viewer.scene.atmosphere.dynamicLighting    = true;
+  viewer.scene.atmosphere.brightnessShift   = 0.15;
+  viewer.scene.postProcessStages.bloom.enabled    = true;
+  viewer.scene.postProcessStages.bloom.contrast   = 128;
+  viewer.scene.postProcessStages.bloom.brightness = -0.3;
+  viewer.scene.postProcessStages.fxaa.enabled     = true;
+  viewer.scene.globe.depthTestAgainstTerrain       = true;
+
+  // Start from space
+  viewer.camera.setView({
+    destination: Cesium.Cartesian3.fromDegrees(78.96, 20.59, 12000000),
+    orientation: { heading:0, pitch:-Math.PI/2, roll:0 },
+  });
+
+  // Tick updates
+  viewer.clock.onTick.addEventListener(updateHUD);
+
+  // Click handler on globe
+  const handler = new Cesium.ScreenSpaceEventHandler(viewer.canvas);
+  handler.setInputAction(click => {
+    const picked = viewer.scene.pickPosition(click.position);
+    if (Cesium.defined(picked)) {
+      const cart = Cesium.Cartographic.fromCartesian(picked);
+      const lat  = Cesium.Math.toDegrees(cart.latitude).toFixed(5);
+      const lon  = Cesium.Math.toDegrees(cart.longitude).toFixed(5);
+      showLocationPin(parseFloat(lat), parseFloat(lon), cart.height);
+    }
+  }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+}
+
+function updateHUD() {
+  frameCount++;
+  const now = performance.now();
+  if (now - fpsTimer >= 1000) {
+    fps = frameCount; frameCount=0; fpsTimer=now;
+    document.getElementById("h-fps").textContent = fps+" FPS";
+  }
+
+  if (!viewer) return;
+  const pos   = viewer.camera.positionCartographic;
+  const altKm = (pos.altitude/1000).toFixed(0);
+  const lat   = Cesium.Math.toDegrees(pos.latitude).toFixed(4);
+  const lon   = Cesium.Math.toDegrees(pos.longitude).toFixed(4);
+
+  document.getElementById("h-lat").textContent  = `LAT  ${lat}°`;
+  document.getElementById("h-lon").textContent  = `LON  ${lon}°`;
+  document.getElementById("h-alt").textContent  = `ALT  ${altKm} km`;
+  document.getElementById("h-zoom").textContent = `ALT  ${altKm} km`;
+
+  // Mode by altitude
+  let mode = "ORBITAL";
+  if (pos.altitude < 5000)         mode = "REGIONAL";
+  if (pos.altitude < 500000)       mode = "COUNTRY";
+  if (pos.altitude < 100000)       mode = "CITY";
+  if (pos.altitude < 10000)        mode = "STREET";
+  if (pos.altitude < 1000)         mode = "BUILDING";
+  document.getElementById("h-mode").textContent = mode;
+}
+
+function showLocationPin(lat, lon, alt) {
+  // Reticle at screen center (simplified)
+  const r = document.getElementById("ret");
+  r.style.display = "block";
+  r.style.left = (innerWidth/2)+"px";
+  r.style.top  = (innerHeight/2)+"px";
+  setTimeout(()=>{ r.style.display="none"; }, 2500);
+
+  document.getElementById("h-loc").textContent  = `${lat}°, ${lon}°`;
+  document.getElementById("h-loc2").textContent = "Selected Location";
+
+  toast(`LOCATION LOCKED: ${lat}°N ${lon}°E`);
+}
+
+// ── LAYER SWITCHER ──────────────────────────────────
+function setLayer(type) {
+  if (!viewer) return;
+  document.querySelectorAll(".layer-btn").forEach(b=>b.classList.remove("active"));
+  event.target.classList.add("active");
+
+  // Clear imagery layers
+  viewer.imageryLayers.removeAll();
+
+  switch(type) {
+    case "satellite":
+      viewer.imageryLayers.addImageryProvider(
+        new Cesium.BingMapsImageryProvider({
+          url:"https://dev.virtualearth.net",
+          mapStyle:Cesium.BingMapsStyle.AERIAL,
+        })
+      );
+      document.getElementById("h-src").textContent = "● IMAGERY   BING SATELLITE";
+      toast("SATELLITE IMAGERY — HIGH RESOLUTION");
+      break;
+
+    case "terrain":
+      viewer.imageryLayers.addImageryProvider(
+        new Cesium.BingMapsImageryProvider({
+          url:"https://dev.virtualearth.net",
+          mapStyle:Cesium.BingMapsStyle.AERIAL_WITH_LABELS,
+        })
+      );
+      document.getElementById("h-src").textContent = "● IMAGERY   TERRAIN + LABELS";
+      toast("TERRAIN MODE — 3D ELEVATION ACTIVE");
+      break;
+
+    case "streets":
+      viewer.imageryLayers.addImageryProvider(
+        new Cesium.OpenStreetMapImageryProvider({
+          url:"https://tile.openstreetmap.org/",
+        })
+      );
+      document.getElementById("h-src").textContent = "● IMAGERY   OPENSTREETMAP";
+      toast("STREET MAP MODE");
+      break;
+
+    case "night":
+      // NASA Blue Marble Night Lights
+      viewer.imageryLayers.addImageryProvider(
+        new Cesium.TileMapServiceImageryProvider({
+          url: Cesium.buildModuleUrl("Assets/Textures/NaturalEarthII"),
+        })
+      );
+      // Add NASA night lights layer
+      viewer.imageryLayers.addImageryProvider(
+        new Cesium.WebMapServiceImageryProvider({
+          url:"https://gibs.earthdata.nasa.gov/wms/epsg4326/best/wms.cgi",
+          layers:"VIIRS_SNPP_DayNightBand_ENCC",
+          parameters:{
+            FORMAT:"image/png",
+            TRANSPARENT:true,
+          },
+          tileWidth:512, tileHeight:512,
+        })
+      );
+      document.getElementById("h-src").textContent = "● IMAGERY   NASA NIGHT LIGHTS";
+      toast("NIGHT LIGHTS — VIIRS/SNPP SENSOR DATA");
+      break;
+
+    case "weather":
+      viewer.imageryLayers.addImageryProvider(
+        new Cesium.BingMapsImageryProvider({
+          url:"https://dev.virtualearth.net",
+          mapStyle:Cesium.BingMapsStyle.AERIAL,
+        })
+      );
+      // Add cloud layer from OpenWeatherMap
+      viewer.imageryLayers.addImageryProvider(
+        new Cesium.UrlTemplateImageryProvider({
+          url:"https://tile.openweathermap.org/map/clouds_new/{z}/{x}/{y}.png?appid=demo",
+          credit:"OpenWeatherMap",
+          minimumLevel:0, maximumLevel:10,
+        })
+      );
+      document.getElementById("h-src").textContent = "● IMAGERY   SATELLITE + WEATHER";
+      toast("WEATHER OVERLAY — CLOUD LAYER");
+      break;
+  }
+}
+
+// ── VOICE FLY-TO ────────────────────────────────────
+const PLACES = {
+  "india":       [20.59,  78.96,  1800000],
+  "delhi":       [28.61,  77.21,  50000],
+  "new delhi":   [28.61,  77.21,  50000],
+  "mumbai":      [19.07,  72.87,  50000],
+  "taj mahal":   [27.1751,78.0421,1500],
+  "paris":       [48.85,  2.35,   30000],
+  "london":      [51.50, -0.12,   30000],
+  "new york":    [40.71, -74.00,  30000],
+  "tokyo":       [35.68, 139.69,  30000],
+  "dubai":       [25.20,  55.27,  20000],
+  "sydney":      [-33.87,151.21,  30000],
+  "china":       [35.86, 104.19,  3000000],
+  "usa":         [37.09, -95.71,  4000000],
+  "europe":      [54.52,  15.25,  3000000],
+  "australia":   [-25.27,133.77,  3000000],
+  "africa":      [8.78,   34.50,  4000000],
+  "amazon":      [-3.46, -60.02,  200000],
+  "himalayas":   [27.99,  86.92,  80000],
+  "mount everest":[27.99, 86.92,  8000],
+  "sahara":      [23.00,  12.00,  1000000],
+  "great barrier reef":[-18.29,147.70,100000],
+  "grand canyon":[36.10,-112.11,  20000],
+  "eiffel tower":[48.858,2.2945, 1000],
+  "statue of liberty":[40.689,-74.044,1000],
+  "colosseum":   [41.89,  12.49,  800],
+  "great wall":  [40.43, 116.57,  20000],
+  "chandigarh":  [30.74,  76.79,  30000],
+};
+
+function flyTo(place) {
+  if (!viewer) { toast("EARTH VIEW NOT ACTIVE YET"); return; }
+  const p = place.toLowerCase().trim();
+  for (const [key, [lat,lon,alt]] of Object.entries(PLACES)) {
+    if (key.includes(p) || p.includes(key)) {
+      viewer.camera.flyTo({
+        destination: Cesium.Cartesian3.fromDegrees(lon, lat, alt),
+        orientation: {
+          heading: Cesium.Math.toRadians(0),
+          pitch:   Cesium.Math.toRadians(-45),
+          roll:    0,
+        },
+        duration: 3,
+        easingFunction: Cesium.EasingFunction.CUBIC_IN_OUT,
+      });
+      document.getElementById("h-loc").textContent  = key.toUpperCase();
+      document.getElementById("h-loc2").textContent = `${lat.toFixed(2)}°, ${lon.toFixed(2)}°`;
+      toast(`NAVIGATING TO ${key.toUpperCase()}`);
+      return;
+    }
+  }
+  // Geocode fallback — search Nominatim
+  toast(`SEARCHING: ${place.toUpperCase()}`);
+  fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(place)}&format=json&limit=1`)
+    .then(r=>r.json())
+    .then(data => {
+      if (data.length > 0) {
+        const lat = parseFloat(data[0].lat);
+        const lon = parseFloat(data[0].lon);
+        viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(lon, lat, 50000),
+          orientation:{ heading:0, pitch:Cesium.Math.toRadians(-45), roll:0 },
+          duration:3,
+        });
+        document.getElementById("h-loc").textContent  = data[0].display_name.split(",")[0].toUpperCase();
+        document.getElementById("h-loc2").textContent = `${lat.toFixed(4)}°, ${lon.toFixed(4)}°`;
+        toast(`FOUND: ${data[0].display_name.split(",")[0].toUpperCase()}`);
+      } else {
+        toast("LOCATION NOT FOUND IN DATABASE");
+      }
+    })
+    .catch(()=>toast("GEOCODER UNAVAILABLE — CHECK CONNECTION"));
+}
+
+// ── HAND GESTURE CONTROL ────────────────────────────
+const hCanvas = document.getElementById("hand-canvas");
+const hCtx    = hCanvas.getContext("2d");
+hCanvas.width  = innerWidth;
+hCanvas.height = innerHeight;
+
+let gestureActive = false;
+let prevHands = null;
+let gestureZoomActive = false;
+let prevPinchDist = null;
+
+async function initGestures() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({video:{width:320,height:240}});
+    const vid    = document.getElementById("cam-vid");
+    vid.srcObject = stream;
+    document.getElementById("cam-wrap").style.display = "block";
+
+    // Load MediaPipe
+    await loadScript("https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1635986972/hands.js");
+    await loadScript("https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1632090166/camera_utils.js");
+
+    const hands = new window.Hands({
+      locateFile: f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1635986972/${f}`
+    });
+    hands.setOptions({
+      maxNumHands:2, modelComplexity:1,
+      minDetectionConfidence:0.65, minTrackingConfidence:0.6,
+    });
+    hands.onResults(processHands);
+
+    const cam = new window.Camera(vid,{
+      onFrame: async()=>{ await hands.send({image:vid}); },
+      width:320, height:240,
+    });
+    cam.start();
+    gestureActive = true;
+    document.getElementById("h-gest").textContent = "● GESTURE   ACTIVE";
+
+  } catch(e) {
+    document.getElementById("h-gest").textContent = "● GESTURE   MOUSE ONLY";
+  }
+}
+
+function processHands(res) {
+  hCtx.clearRect(0,0,hCanvas.width,hCanvas.height);
+  const lm = res.multiHandLandmarks || [];
+
+  // Draw hand dots
+  lm.forEach(hand => {
+    hand.forEach((pt,i) => {
+      const x = (1-pt.x)*innerWidth;
+      const y =   pt.y  *innerHeight;
+      const sz = i===0||i===4||i===8||i===12||i===16||i===20 ? 8 : 4;
+      hCtx.beginPath();
+      hCtx.arc(x,y,sz,0,Math.PI*2);
+      hCtx.fillStyle = "rgba(0,200,255,0.7)";
+      hCtx.fill();
+    });
+    // Draw connections for fingers
+    [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],
+     [5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],
+     [13,17],[17,18],[18,19],[19,20],[0,17]].forEach(([a,b])=>{
+      const pa=hand[a], pb=hand[b];
+      hCtx.beginPath();
+      hCtx.moveTo((1-pa.x)*innerWidth, pa.y*innerHeight);
+      hCtx.lineTo((1-pb.x)*innerWidth, pb.y*innerHeight);
+      hCtx.strokeStyle="rgba(0,200,255,0.25)";
+      hCtx.lineWidth=1.5;
+      hCtx.stroke();
+    });
+  });
+
+  if (!viewer || lm.length===0) { prevHands=null; prevPinchDist=null; return; }
+
+  if (lm.length===2) {
+    // TWO HANDS: pinch-zoom + pan
+    const h0=lm[0], h1=lm[1];
+    const mx=(h0[9].x+h1[9].x)/2, my=(h0[9].y+h1[9].y)/2;
+    const d=Math.hypot(h0[9].x-h1[9].x, h0[9].y-h1[9].y);
+
+    if (prevPinchDist!==null) {
+      const dd = d - prevPinchDist;
+      // Spread = zoom in (reduce altitude)
+      const alt = viewer.camera.positionCartographic.altitude;
+      const factor = 1 - dd*3;
+      const newAlt = Math.max(200, Math.min(15000000, alt*factor));
+      const pos = viewer.camera.positionCartographic;
+      viewer.camera.zoomIn(alt - newAlt);
+
+      // Pan from midpoint movement
+      if (prevHands && prevHands.mid) {
+        const dxn = mx - prevHands.mid.x;
+        const dyn = my - prevHands.mid.y;
+        viewer.camera.moveRight(-dxn * alt * 0.003);
+        viewer.camera.moveDown( dyn * alt * 0.003);
+      }
+    }
+    prevPinchDist = d;
+    prevHands = { mid:{x:mx,y:my} };
+
+    // Pinch detection for location select
+    const p0=Math.hypot(h0[4].x-h0[8].x,h0[4].y-h0[8].y)<0.04;
+    const p1=Math.hypot(h1[4].x-h1[8].x,h1[4].y-h1[8].y)<0.04;
+    if (p0||p1) {
+      const h=p0?h0:h1;
+      const sx=(1-h[8].x)*innerWidth, sy=h[8].y*innerHeight;
+      const picked=viewer.scene.pickPosition(new Cesium.Cartesian2(sx,sy));
+      if (Cesium.defined(picked)) {
+        const c=Cesium.Cartographic.fromCartesian(picked);
+        showLocationPin(
+          Cesium.Math.toDegrees(c.latitude).toFixed(4),
+          Cesium.Math.toDegrees(c.longitude).toFixed(4),
+          c.height
+        );
+      }
+    }
+  } else if (lm.length===1) {
+    // ONE HAND: orbit / pan
+    prevPinchDist=null;
+    const h=lm[0];
+    if (prevHands && prevHands.single) {
+      const dx=h[9].x-prevHands.single.x;
+      const dy=h[9].y-prevHands.single.y;
+      const alt=viewer.camera.positionCartographic.altitude;
+      viewer.camera.moveRight(-dx*alt*0.006);
+      viewer.camera.moveDown( dy*alt*0.004);
+    }
+    prevHands={ single:{x:h[9].x,y:h[9].y} };
+  } else {
+    prevHands=null; prevPinchDist=null;
+  }
+}
+
+function loadScript(src) {
+  return new Promise((res,rej)=>{
+    const s=document.createElement("script");
+    s.src=src; s.onload=res; s.onerror=rej;
+    document.head.appendChild(s);
+  });
+}
+
+// ── VOICE BRIDGE ────────────────────────────────────
+window.earthCommand = function(cmd) {
+  const c = cmd.toLowerCase().trim();
+  if (c.includes("satellite"))      setLayerByName("satellite");
+  else if (c.includes("night"))     setLayerByName("night");
+  else if (c.includes("street"))    setLayerByName("streets");
+  else if (c.includes("weather"))   setLayerByName("weather");
+  else if (c.includes("terrain"))   setLayerByName("terrain");
+  else if (c.includes("reset"))     resetView();
+  else if (c.includes("my location")) gotoMyLocation();
+  else if (c.includes("exit"))      exitMode();
+  else {
+    const p=c.replace(/(show me|take me to|go to|find|navigate to|fly to)/g,"").trim();
+    if (p.length>1) flyTo(p);
+  }
+};
+
+function setLayerByName(name) {
+  const btn = [...document.querySelectorAll(".layer-btn")]
+    .find(b=>b.textContent.toLowerCase().includes(name.split(" ")[0]));
+  if (btn) { btn.click(); }
+}
+
+function resetView() {
+  if (!viewer) return;
+  viewer.camera.flyTo({
+    destination:Cesium.Cartesian3.fromDegrees(78.96,20.59,12000000),
+    orientation:{heading:0,pitch:-Math.PI/2,roll:0},
+    duration:3,
+  });
+  document.getElementById("h-loc").textContent  = "ORBITAL VIEW";
+  document.getElementById("h-loc2").textContent = "Earth · Overview";
+  toast("RESET TO ORBITAL VIEW");
+}
+
+function gotoMyLocation() {
+  navigator.geolocation.getCurrentPosition(pos => {
+    if (!viewer) return;
+    const lat=pos.coords.latitude, lon=pos.coords.longitude;
+    viewer.camera.flyTo({
+      destination:Cesium.Cartesian3.fromDegrees(lon,lat,5000),
+      orientation:{heading:0,pitch:Cesium.Math.toRadians(-45),roll:0},
+      duration:3,
+    });
+    document.getElementById("h-loc").textContent  = "MY LOCATION";
+    document.getElementById("h-loc2").textContent = `${lat.toFixed(4)}°, ${lon.toFixed(4)}°`;
+    toast(`YOUR LOCATION: ${lat.toFixed(4)}°N ${lon.toFixed(4)}°E`);
+  }, ()=>toast("LOCATION ACCESS DENIED — ENABLE IN BROWSER"));
+}
+
+function exitMode() {
+  toast("EXITING EARTH MODE...");
+  if (viewer) {
+    viewer.camera.flyTo({
+      destination:Cesium.Cartesian3.fromDegrees(0,0,25000000),
+      duration:2,
+    });
+  }
+  setTimeout(()=>window.close(), 2200);
+}
+
+// ── TOAST ───────────────────────────────────────────
+let toastT;
+function toast(msg) {
+  const el=document.getElementById("toast");
+  el.textContent=msg; el.classList.add("show");
+  clearTimeout(toastT);
+  toastT=setTimeout(()=>el.classList.remove("show"),3200);
+}
+
+// ── BOOT ────────────────────────────────────────────
+async function boot() {
+  const bar=document.getElementById("boot-bar");
+  const msg=document.getElementById("boot-msg");
+  const steps=[
+    [12, "INITIALIZING SOLAR SYSTEM ENGINE"],
+    [25, "LOADING THREE.JS RENDERER"],
+    [40, "BUILDING PLANETARY ORBITS"],
+    [55, "CONNECTING CESIUMJS SATELLITE STREAM"],
+    [68, "LOADING BING AERIAL IMAGERY"],
+    [78, "CONNECTING 3D TERRAIN — CESIUM ION"],
+    [87, "ENABLING MEDIAPIPE HAND TRACKING"],
+    [93, "LOADING OSM 3D BUILDINGS"],
+    [100,"EARTH MODE READY — INITIATING"],
+  ];
+  for (const [p,m] of steps) {
+    bar.style.width=p+"%"; msg.textContent=m;
+    await new Promise(r=>setTimeout(r,280+Math.random()*180));
+  }
+  await new Promise(r=>setTimeout(r,400));
+
+  // Init solar system
+  initSolar();
+
+  // Start Cesium in background
+  initCesium().catch(e=>console.log("Cesium init:",e));
+
+  // Start gesture tracking
+  initGestures();
+
+  // Hide boot, show solar system fly-in
+  document.getElementById("boot").classList.add("out");
+  document.getElementById("hud").classList.add("on");
+  document.getElementById("exit-btn").style.display="block";
+  document.getElementById("layers").style.display="flex";
+
+  setTimeout(()=>document.getElementById("boot").style.display="none",2000);
+
+  // After 2.5s, fly from solar system into Earth
+  setTimeout(()=>{
+    zoomingToEarth=true;
+    solarFlyT=0;
+    toast("ENTERING EARTH ORBIT — ACTIVATING SATELLITE FEED");
+  }, 2500);
+
+  toast("SOLAR SYSTEM VIEW — FLYING TO EARTH");
+}
+
+window.addEventListener("resize",()=>{
+  if (solarRenderer) {
+    solarCam.aspect=innerWidth/innerHeight;
+    solarCam.updateProjectionMatrix();
+    solarRenderer.setSize(innerWidth,innerHeight);
+  }
+  hCanvas.width=innerWidth; hCanvas.height=innerHeight;
+});
+
+boot();
+</script>
+</body>
+</html>
