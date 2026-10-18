@@ -60,3 +60,5 @@ data/
 /ultron/
 # Compiled python
 *.pyc
+
+*.bak
