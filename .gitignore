@@ -62,3 +62,15 @@ data/
 *.pyc
 
 *.bak
+
+# --- clutter kept locally, not on GitHub ---
+/earth.html
+/earth new.html
+/earth_html_dump.txt
+/files/
+/files.zip
+/gitignore
+/.gitignore.txt
+/hands_free_patch_for_ultron.py
+earth_mode/*(1).*
+earth_mode/test.txt
