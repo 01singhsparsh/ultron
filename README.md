@@ -58,6 +58,8 @@ It started as a portfolio project and grew into a modular system: a voice pipeli
 
 ## Earth Mode
 
+> **Standalone repo:** Earth Mode also lives on its own - [01singhsparsh/ultron-earth-mode](https://github.com/01singhsparsh/ultron-earth-mode) - run it without the rest of ULTRON.
+
 Say **"show me Earth mode"** and a browser opens a real-time 3D scene (Three.js): the solar system, then a NASA Blue Marble globe, then a Leaflet/Esri satellite map when you zoom in far enough.
 
 **Voice commands**

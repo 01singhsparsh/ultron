@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8"><title>ULTRON EARTH MODE</title>
@@ -59,7 +59,7 @@ body{background:#000005;overflow:hidden;font-family:var(--f);color:var(--c)}
 </style>
 </head>
 <body>
-<div id="buildtag" style="position:fixed;top:4px;right:4px;z-index:9999;font-size:11px;color:#39ff14;background:#000;padding:3px 8px;font-family:monospace;border:1px solid #39ff14;letter-spacing:1px;">BUILD GESTURE-V6 - LIVE LOC + POINT/MARK</div>
+<div id="buildtag" style="position:fixed;top:4px;right:4px;z-index:9999;font-size:11px;color:#39ff14;background:#000;padding:3px 8px;font-family:monospace;border:1px solid #39ff14;letter-spacing:1px;">BUILD EARTH-V8 - MAP ZOOM FIX + LOCATION</div>
 <canvas id="mc"></canvas>
 <div id="mw"><div id="map"></div></div>
 <div id="hud">
@@ -288,7 +288,7 @@ function showSat(){
   phase="map";document.getElementById("hmode").textContent="SATELLITE";
   requestAnimationFrame(function(){requestAnimationFrame(function(){
     if(!leafMap){
-      leafMap=L.map("map",{center:[gLat,gLon],zoom:12,zoomControl:false,attributionControl:false});
+      leafMap=L.map("map",{center:[gLat,gLon],zoom:12,zoomControl:false,attributionControl:false,zoomSnap:0,zoomDelta:0.5,wheelPxPerZoomLevel:90});
       L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",{maxZoom:19}).addTo(leafMap);
       L.tileLayer("https://services.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",{maxZoom:19,opacity:.85}).addTo(leafMap);
       leafMap.on("zoomend",function(){if(phase==="map"&&leafMap.getZoom()<=3)backToGlobe();});
@@ -296,6 +296,12 @@ function showSat(){
       toast("SATELLITE TILES LOADING - SCROLL=ZOOM - ZOOM OUT=GLOBE");
     } else {leafMap.invalidateSize(true);leafMap.setView([gLat,gLon],12);toast("SATELLITE DETAIL");}
   });});
+}
+
+function mapZoomBy(d){
+  if(!leafMap)return;
+  const z=Math.max(2,Math.min(19,leafMap.getZoom()+d));
+  leafMap.setZoom(z,{animate:false});
 }
 
 function backToGlobe(){
@@ -368,6 +374,9 @@ function pollCmds(){
     else if(cmd==="sat")showSat();
     else if(cmd==="globe"&&phase==="map")backToGlobe();
     else if(cmd.indexOf("direction")>=0){if(lastVoicePlace)showDirectionTo(lastVoicePlace);else toast("NO PLACE VISITED YET - SAY A PLACE NAME FIRST");}
+    else if(cmd.indexOf("setloc:")===0){setMyLocation(cmd.split("setloc:")[1].trim());}
+    else if(cmd.toLowerCase().indexOf("recalibrate")>=0||cmd.toLowerCase().indexOf("refresh my location")>=0||cmd.toLowerCase().indexOf("update my location")>=0){refreshMyLoc();}
+    else if(matchLocPhrase(cmd)){setMyLocation(matchLocPhrase(cmd));}
     else if(cmd.indexOf("layer:")===0){const t=cmd.split("layer:")[1].trim();if(t==="night")setNight(null);else setDay(null);}
   }).catch(function(){});
 }
@@ -375,6 +384,9 @@ setInterval(pollCmds,700);
 
 window.earthCommand=function(cmd){
   const c=cmd.toLowerCase();
+  const locPhrase=matchLocPhrase(cmd);
+  if(locPhrase){setMyLocation(locPhrase);return;}
+  if(c.indexOf("recalibrate")>=0||c.indexOf("refresh my location")>=0||c.indexOf("refresh location")>=0||c.indexOf("update my location")>=0){refreshMyLoc();return;}
   if(c.indexOf("exit")>=0)exitMode();
   else if(c.indexOf("reset")>=0){tgLon=0;tgLat=20.59;tgDist=260;if(phase==="map")backToGlobe();}
   else if(c.indexOf("satellite")>=0||c.indexOf("detail")>=0)showSat();
@@ -390,23 +402,90 @@ function toast(msg){const el=document.getElementById("toast");el.textContent=msg
 
 const hcv=document.getElementById("handcanvas"),hx=hcv.getContext("2d");
 hcv.width=innerWidth;hcv.height=innerHeight;
+let panFlip=1;
+try{if(localStorage.getItem('earthPanFlip')==='-1')panFlip=-1;}catch(e){}
+window.addEventListener('keydown',function(e){
+  if(e.key==='i'||e.key==='I'){
+    panFlip=-panFlip;
+    try{localStorage.setItem('earthPanFlip',String(panFlip));}catch(err){}
+    toast(panFlip===1?'HAND PAN: MAP FOLLOWS YOUR HAND':'HAND PAN: DIRECTION FLIPPED');
+  }
+});
 let pH=null,pPD=null,gRdy=false,pOpen=null,pPalm=null;
 let handSent=0,handOk=0,handErr=0,lastHandErr="",lastLmCount=0;
 function updateGDiag(){const el=document.getElementById("gdiag");if(el)el.textContent="sent:"+handSent+" ok:"+handOk+" err:"+handErr+" hands:"+lastLmCount;}
 
 let myLoc=null,myLocRequested=false,firstGlobeEntry=true,lastVoicePlace=null,markedPlace=null,lastPointedLL=null,lastMarkTs=0;
+function reportLocAccuracy(acc){
+  const el=document.getElementById("hgeo");
+  if(acc==null){el.textContent="● LOCATION  LIVE";return;}
+  const km=acc/1000;
+  if(acc<=5000){
+    el.textContent="● LOCATION  LIVE (~"+km.toFixed(1)+"km)";
+    toast("LIVE LOCATION ACQUIRED");
+  } else {
+    el.textContent="● LOCATION  LOW ACCURACY (~"+km.toFixed(0)+"km)";
+    toast("LOCATION ACCURACY IS LOW (~"+km.toFixed(0)+"KM OFF) - SAY \'I AM AT <YOUR CITY>\' TO CORRECT IT");
+  }
+}
 function requestMyLoc(){
   if(myLocRequested)return;
   myLocRequested=true;
   if(!navigator.geolocation){document.getElementById("hgeo").textContent="● LOCATION  NOT SUPPORTED";return;}
   navigator.geolocation.getCurrentPosition(function(pos){
-    myLoc={lat:pos.coords.latitude,lon:pos.coords.longitude};
-    document.getElementById("hgeo").textContent="● LOCATION  LIVE";
-    toast("LIVE LOCATION ACQUIRED");
+    myLoc={lat:pos.coords.latitude,lon:pos.coords.longitude,manual:false};
+    reportLocAccuracy(pos.coords.accuracy);
   },function(err){
     document.getElementById("hgeo").textContent="● LOCATION  "+((err&&err.message)?err.message.toUpperCase().substring(0,24):"UNAVAILABLE");
-    toast("LIVE LOCATION UNAVAILABLE - ALLOW LOCATION ACCESS AND RELOAD TO USE IT");
+    toast("LIVE LOCATION UNAVAILABLE - SAY \'I AM AT <YOUR CITY>\' TO SET IT MANUALLY");
   },{enableHighAccuracy:true,timeout:8000,maximumAge:60000});
+}
+function refreshMyLoc(){
+  if(!navigator.geolocation){toast("GEOLOCATION NOT SUPPORTED BY THIS BROWSER");return;}
+  toast("RE-ACQUIRING LIVE LOCATION...");
+  navigator.geolocation.getCurrentPosition(function(pos){
+    myLoc={lat:pos.coords.latitude,lon:pos.coords.longitude,manual:false};
+    reportLocAccuracy(pos.coords.accuracy);
+  },function(err){
+    toast("LOCATION REFRESH FAILED: "+((err&&err.message)?err.message.toUpperCase():"UNKNOWN ERROR"));
+  },{enableHighAccuracy:true,timeout:8000,maximumAge:0});
+}
+function setMyLocation(raw){
+  const place=(raw||"").trim();
+  if(!place){toast("SAY A PLACE NAME, LIKE \'I AM AT CHANDIGARH UNIVERSITY\'");return;}
+  toast("SETTING YOUR LOCATION: "+place.toUpperCase()+"...");
+  const p=place.toLowerCase();
+  let found=null,fname=p;
+  if(PLACES[p])found=PLACES[p];
+  else{for(const k in PLACES){if(k.indexOf(p)>=0||p.indexOf(k)>=0){found=PLACES[k];fname=k;break;}}}
+  function applyLoc(lat,lon,name){
+    myLoc={lat:lat,lon:lon,manual:true};
+    document.getElementById("hgeo").textContent="● LOCATION  SET: "+name.toUpperCase();
+    toast("YOUR LOCATION SET TO "+name.toUpperCase()+" - NAVIGATE FREELY");
+    if(phase==="globe"){
+      tgLat=lat;tgLon=lon;tgDist=160;
+      document.getElementById("hloc").textContent="YOUR LOCATION";
+      document.getElementById("hloc2").textContent=lat.toFixed(3)+", "+lon.toFixed(3);
+    } else if(phase==="map"&&leafMap){
+      leafMap.flyTo([lat,lon],14);
+    }
+  }
+  if(found){
+    applyLoc(found[0],found[1],fname);
+  } else {
+    fetch("https://nominatim.openstreetmap.org/search?q="+encodeURIComponent(place)+"&format=json&limit=1")
+      .then(function(r){return r.json();}).then(function(d){
+        if(d.length>0){
+          const lat=parseFloat(d[0].lat),lon=parseFloat(d[0].lon);
+          const n=d[0].display_name.split(",")[0];
+          applyLoc(lat,lon,n);
+        } else toast("COULDN'T FIND: "+place+" - TRY A NEARBY CITY OR LANDMARK NAME");
+      }).catch(function(){toast("GEOCODER UNAVAILABLE - TRY AGAIN");});
+  }
+}
+function matchLocPhrase(text){
+  const m=text.toLowerCase().match(/(?:i am at|i'm at|i am in|i'm in|i am currently at|my location is|set my location to|set my location as|set location to)\s+(.+)/);
+  return m?m[1].trim():null;
 }
 function countExtendedFingers(h){
   const wrist=h[0];
@@ -637,7 +716,7 @@ function onHands(res){
       if(pPalm){
         const ddx=cx-pPalm.x,ddy=cy-pPalm.y;
         if(Math.abs(ddx)>0.004||Math.abs(ddy)>0.004){
-          tgLon-=ddx*55;tgLat=Math.max(-88,Math.min(88,tgLat+ddy*40));
+          tgLon+=ddx*55*panFlip;tgLat=Math.max(-88,Math.min(88,tgLat+ddy*40));
         }
       }
       pPalm={x:cx,y:cy};
@@ -664,8 +743,21 @@ function onHands(res){
     } else if(ext===2){
       handleMarkGesture(h);
       pOpen=null;pPalm=null;pPD=null;
+    } else if(lm.length>=2){
+      hidePointer();
+      pOpen=null;pPalm=null;
+      const d=Math.hypot(lm[0][9].x-lm[1][9].x,lm[0][9].y-lm[1][9].y);
+      if(pPD!==null){
+        const dd=d-pPD;
+        if(Math.abs(dd)>0.01){
+          if(dd<0)mapZoomBy(0.14);
+          else mapZoomBy(-0.14);
+        }
+      }
+      pPD=d;
     } else {
       hidePointer();
+      pPD=null;
       const wrist=h[0],palmRef=h[9];
       const palmLen=Math.hypot(wrist.x-palmRef.x,wrist.y-palmRef.y)||0.0001;
       const tipsO=[4,8,12,16,20];
@@ -673,8 +765,8 @@ function onHands(res){
       const openness=(sum/tipsO.length)/palmLen;
       if(pOpen!==null){
         const dOpen=openness-pOpen;
-        if(dOpen<-0.035)leafMap.zoomIn(.4);
-        else if(dOpen>0.035)leafMap.zoomOut(.4);
+        if(dOpen<-0.035)mapZoomBy(0.14);
+        else if(dOpen>0.035)mapZoomBy(-0.14);
       }
       pOpen=openness;
       const cx=palmRef.x,cy=palmRef.y;
@@ -682,15 +774,10 @@ function onHands(res){
         const ddx=cx-pPalm.x,ddy=cy-pPalm.y;
         if(Math.abs(ddx)>0.003||Math.abs(ddy)>0.003){
           const sz=leafMap.getSize();
-          leafMap.panBy([-ddx*sz.x*1.6,-ddy*sz.y*1.6],{animate:false});
+          leafMap.panBy([ddx*sz.x*1.6*panFlip,-ddy*sz.y*1.6],{animate:false});
         }
       }
       pPalm={x:cx,y:cy};
-      if(lm.length>=2){
-        const d=Math.hypot(lm[0][9].x-lm[1][9].x,lm[0][9].y-lm[1][9].y);
-        if(pPD!==null){const dd=d-pPD;if(dd<-.012)leafMap.zoomIn(.4);else if(dd>.012)leafMap.zoomOut(.4);}
-        pPD=d;
-      } else {pPD=null;}
     }
   } else {
     pOpen=null;pPalm=null;pPD=null;
